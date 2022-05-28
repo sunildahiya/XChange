@@ -65,7 +65,7 @@ public class BinanceStreamingAccountService implements StreamingAccountService {
       accountInfo =
           binanceUserDataStreamingService
               .subscribeChannel(
-                  BaseBinanceWebSocketTransaction.BinanceWebSocketTypes.OUTBOUND_ACCOUNT_INFO)
+                  BaseBinanceWebSocketTransaction.BinanceWebSocketTypes.OUTBOUND_ACCOUNT_POSITION)
               .map(this::accountInfo)
               .filter(
                   m ->
