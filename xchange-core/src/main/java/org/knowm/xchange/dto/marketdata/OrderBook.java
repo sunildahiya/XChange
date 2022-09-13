@@ -25,6 +25,7 @@ public final class OrderBook implements Serializable {
   private final List<LimitOrder> bids;
   /** the timestamp of the orderbook according to the exchange's server, null if not provided */
   private Date timeStamp;
+  private CurrencyPair currencyPair;
 
   /**
    * Constructor
@@ -98,6 +99,11 @@ public final class OrderBook implements Serializable {
       this.asks = asks.collect(Collectors.toList());
       this.bids = bids.collect(Collectors.toList());
     }
+  }
+
+  public OrderBook(CurrencyPair currencyPair, Date timeStamp, List<LimitOrder> asks, List<LimitOrder> bids) {
+    this(timeStamp, asks, bids);
+    this.currencyPair = currencyPair;
   }
 
   // Returns a copy of limitOrder with tradeableAmount replaced.
@@ -261,6 +267,14 @@ public final class OrderBook implements Serializable {
     OrderBook thisOb = new OrderBook(timestamp, this.getAsks(), this.getBids());
     OrderBook thatOb = new OrderBook(timestamp, ob.getAsks(), ob.getBids());
     return thisOb.equals(thatOb);
+  }
+
+  public CurrencyPair getCurrencyPair() {
+    return currencyPair;
+  }
+
+  public void setCurrencyPair(CurrencyPair currencyPair) {
+    this.currencyPair = currencyPair;
   }
 
   @Override

@@ -43,6 +43,14 @@ public interface StreamingTradeService {
   }
 
   /**
+   *
+   * @return {@link Observable} that emits {@link Order} when order is placed/updated for any symbol on exchange
+   */
+  default Observable<Order> getOrderChanges() {
+    throw new NotYetImplementedForExchangeException("getOrderChanges");
+  }
+
+  /**
    * Gets authenticated trades for the logged-in user.
    *
    * <p><strong>Warning:</strong> there are currently no guarantees that messages will arrive in
@@ -70,6 +78,10 @@ public interface StreamingTradeService {
     if (instrument instanceof CurrencyPair) {
       return getUserTrades((CurrencyPair) instrument, args);
     }
+    throw new NotYetImplementedForExchangeException("getUserTrades");
+  }
+
+  default Observable<UserTrade> getUserTrades() {
     throw new NotYetImplementedForExchangeException("getUserTrades");
   }
 }

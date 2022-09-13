@@ -31,6 +31,13 @@ public interface StreamingMarketDataService {
     }
     throw new NotYetImplementedForExchangeException("getOrderBook");
   }
+
+  /**
+   * Emits orderbook changes with first item being orderbook snapshot
+   */
+  default Observable<OrderBook> getOrderbookChanges(CurrencyPair currencyPair, Object... args) {
+    throw new NotYetImplementedForExchangeException("getOrderbookChanges");
+  }
   /**
    * Get a ticker representing the current exchange rate. Emits {@link
    * info.bitrich.xchangestream.service.exception.NotConnectedException} When not connected to the
