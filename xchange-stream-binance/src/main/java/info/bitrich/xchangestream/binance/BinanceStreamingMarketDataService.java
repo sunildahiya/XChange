@@ -20,12 +20,15 @@ import info.bitrich.xchangestream.service.netty.StreamingObjectMapperHelper;
 import io.reactivex.Observable;
 import io.reactivex.functions.Consumer;
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.util.Date;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.knowm.xchange.binance.BinanceAdapters;
 import org.knowm.xchange.binance.BinanceErrorAdapter;
@@ -40,6 +43,7 @@ import org.knowm.xchange.dto.marketdata.OrderBook;
 import org.knowm.xchange.dto.marketdata.OrderBookUpdate;
 import org.knowm.xchange.dto.marketdata.Ticker;
 import org.knowm.xchange.dto.marketdata.Trade;
+import org.knowm.xchange.dto.trade.LimitOrder;
 import org.knowm.xchange.exceptions.ExchangeException;
 import org.knowm.xchange.exceptions.RateLimitExceededException;
 import org.slf4j.Logger;
@@ -310,12 +314,15 @@ public class BinanceStreamingMarketDataService implements StreamingMarketDataSer
 
   private final class OrderbookSubscription {
     final Observable<DepthBinanceWebSocketTransaction> stream;
+    final CurrencyPair currencyPair;
     final AtomicLong lastUpdateId = new AtomicLong();
     final AtomicLong snapshotLastUpdateId = new AtomicLong();
+    final AtomicBoolean isSnapshot = new AtomicBoolean(true);
     OrderBook orderBook;
 
-    private OrderbookSubscription(Observable<DepthBinanceWebSocketTransaction> stream) {
+    private OrderbookSubscription(Observable<DepthBinanceWebSocketTransaction> stream, CurrencyPair currencyPair) {
       this.stream = stream;
+      this.currencyPair = currencyPair;
     }
 
     void invalidateSnapshot() {
@@ -332,6 +339,7 @@ public class BinanceStreamingMarketDataService implements StreamingMarketDataSer
         snapshotLastUpdateId.set(book.lastUpdateId);
         lastUpdateId.set(book.lastUpdateId);
         orderBook = BinanceMarketDataService.convertOrderBook(book, currencyPair);
+        orderBook.setCurrencyPair(currencyPair);
       } catch (Exception e) {
         LOG.error("Failed to fetch initial order book for " + currencyPair, e);
         snapshotLastUpdateId.set(0);
@@ -366,6 +374,10 @@ public class BinanceStreamingMarketDataService implements StreamingMarketDataSer
         throw e;
       }
     }
+
+    private void setNotSnapshot() {
+      isSnapshot.set(false);
+    }
   }
 
   private Observable<DepthBinanceWebSocketTransaction> rawOrderBookUpdates(
@@ -385,7 +397,7 @@ public class BinanceStreamingMarketDataService implements StreamingMarketDataSer
     // 1. Open a stream to wss://stream.binance.com:9443/ws/bnbbtc@depth
     // 2. Buffer the events you receive from the stream.
     OrderbookSubscription subscription =
-        new OrderbookSubscription(orderBookRawUpdatesSubscriptions.get(currencyPair));
+        new OrderbookSubscription(orderBookRawUpdatesSubscriptions.get(currencyPair), currencyPair);
 
     return subscription
         .stream
@@ -448,6 +460,107 @@ public class BinanceStreamingMarketDataService implements StreamingMarketDataSer
               return subscription.orderBook;
             })
         .share();
+  }
+
+  @Override
+  public Observable<OrderBook> getOrderbookChanges(CurrencyPair currencyPair, Object... args) {
+    // 1. Open a stream to wss://stream.binance.com:9443/ws/bnbbtc@depth
+    // 2. Buffer the events you receive from the stream.
+    OrderbookSubscription subscription =
+            new OrderbookSubscription(orderBookRawUpdatesSubscriptions.get(currencyPair), currencyPair);
+
+    return subscription
+            .stream
+
+            // 3. Get a depth snapshot from
+            // https://www.binance.com/api/v1/depth?symbol=BNBBTC&limit=1000
+            // (we do this if we don't already have one or we've invalidated a previous one)
+            .doOnNext(transaction -> subscription.initSnapshotIfInvalid(currencyPair))
+
+            // If we failed, don't return anything. Just keep trying until it works
+            .filter(transaction -> subscription.snapshotLastUpdateId.get() > 0L)
+
+            // 4. Drop any event where u is <= lastUpdateId in the snapshot
+            .filter(depth -> depth.getLastUpdateId() > subscription.snapshotLastUpdateId.get())
+
+            // 5. The first processed should have U <= lastUpdateId+1 AND u >= lastUpdateId+1, and
+            // subsequent events would
+            // normally have u == lastUpdateId + 1 which is stricter version of the above - let's be
+            // more relaxed
+            // each update has absolute numbers so even if there's an overlap it does no harm
+            .filter(
+                    depth -> {
+                      long lastUpdateId = subscription.lastUpdateId.get();
+                      boolean result;
+                      if (lastUpdateId == 0L) {
+                        result = true;
+                      } else {
+                        result =
+                                depth.getFirstUpdateId() <= lastUpdateId + 1
+                                        && depth.getLastUpdateId() >= lastUpdateId + 1;
+                      }
+                      if (result) {
+                        subscription.lastUpdateId.set(depth.getLastUpdateId());
+                      } else {
+                        // If not, we re-sync.  This will commonly occur a few times when starting up, since
+                        // given update ids 1,2,3,4,5,6,7,8,9, Binance may sometimes return a snapshot
+                        // as of 5, but update events covering 1-3, 4-6 and 7-9.  We can't apply the 4-6
+                        // update event without double-counting 5, and we can't apply the 7-9 update without
+                        // missing 6.  The only thing we can do is to keep requesting a fresh snapshot until
+                        // we get to a situation where the snapshot and an update event precisely line up.
+                        LOG.info(
+                                "Orderbook snapshot for {} out of date (last={}, U={}, u={}). This is normal. Re-syncing.",
+                                currencyPair,
+                                lastUpdateId,
+                                depth.getFirstUpdateId(),
+                                depth.getLastUpdateId());
+                        subscription.invalidateSnapshot();
+                      }
+                      return result;
+                    })
+
+            // 7. The data in each event is the absolute quantity for a price level
+            // 8. If the quantity is 0, remove the price level
+            // 9. Receiving an event that removes a price level that is not in your local order book can
+            // happen and is normal.
+            .flatMap(
+                    depth -> {
+                      if (subscription.isSnapshot.get()) {
+                        subscription.setNotSnapshot();
+                        return Observable.<OrderBook>create(emitter -> {
+                          emitter.onNext(subscription.orderBook);
+                          emitter.onNext(createOrderbook(currencyPair, depth.getOrderBook()));
+                          emitter.onComplete();
+                        });
+                      } else {
+                        return Observable.<OrderBook>create(emitter -> {
+                          emitter.onNext(createOrderbook(currencyPair, depth.getOrderBook()));
+                          emitter.onComplete();
+                        });
+                      }
+                    })
+            .share();
+  }
+
+  private OrderBook createOrderbook(CurrencyPair currencyPair, BinanceOrderbook binanceOrderbook) {
+    List<LimitOrder> bidsOrders = binanceOrderbook.bids.entrySet().stream()
+            .map(entry -> createLimitOrder(currencyPair, OrderType.BID, entry))
+            .collect(Collectors.toList());
+    List<LimitOrder> asksOrders = binanceOrderbook.asks.entrySet().stream()
+            .map(entry -> createLimitOrder(currencyPair, OrderType.ASK, entry))
+            .collect(Collectors.toList());
+    return new OrderBook(currencyPair, null, asksOrders, bidsOrders);
+  }
+
+  private LimitOrder createLimitOrder(CurrencyPair currencyPair, OrderType orderType, Map.Entry<BigDecimal, BigDecimal> orderbookEntry) {
+    return new LimitOrder(
+            orderType,
+            orderbookEntry.getValue(),
+            currencyPair,
+            null,
+            null,
+            orderbookEntry.getKey()
+    );
   }
 
   private Observable<BinanceRawTrade> rawTradeStream(CurrencyPair currencyPair) {

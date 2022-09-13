@@ -39,6 +39,7 @@ public class BinanceStreamingTradeService implements StreamingTradeService {
     return executionReportsPublisher;
   }
 
+  @Override
   public Observable<Order> getOrderChanges() {
     return getRawExecutionReports()
         .filter(r -> !r.getExecutionType().equals(ExecutionType.REJECTED))
