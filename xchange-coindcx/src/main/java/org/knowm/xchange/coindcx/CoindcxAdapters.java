@@ -199,10 +199,7 @@ public class CoindcxAdapters {
     }
 
     private static Order.OrderType convertSide(String side) {
-        if (side == null) {
-            return Order.OrderType.BID;
-        }
-        return "buy".equalsIgnoreCase(side) ? Order.OrderType.BID : Order.OrderType.ASK;
+        return side.equalsIgnoreCase("buy") ? Order.OrderType.BID : Order.OrderType.ASK;
     }
 
     private static OpenPosition.Type adaptPositionType(BigDecimal activePos) {
@@ -220,12 +217,6 @@ public class CoindcxAdapters {
     }
 
     private static BigDecimal getFilledQty(BigDecimal totalQuantity, BigDecimal remainingQuantity) {
-        if (totalQuantity == null) {
-            return null;
-        }
-        if (remainingQuantity == null) {
-            return BigDecimal.ZERO;
-        }
         return totalQuantity.subtract(remainingQuantity);
     }
 
