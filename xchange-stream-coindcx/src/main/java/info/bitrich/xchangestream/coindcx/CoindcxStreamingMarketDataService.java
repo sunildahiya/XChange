@@ -114,7 +114,7 @@ public class CoindcxStreamingMarketDataService implements StreamingMarketDataSer
         // We are supporting only coindcx native markets
         String eCode = "I";
         if (!currencyPair.counter.getCurrencyCode().equals("INR"))
-            eCode = "B";
+            eCode = "KC";
         return String.format("%s-%s_%s", eCode, currencyPair.base, currencyPair.counter);
     }
 

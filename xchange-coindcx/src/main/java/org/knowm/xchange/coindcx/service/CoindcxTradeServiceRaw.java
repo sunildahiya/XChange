@@ -9,6 +9,7 @@ import org.knowm.xchange.currency.CurrencyPair;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 
 public class CoindcxTradeServiceRaw extends CoindcxBaseService {
     protected CoindcxTradeServiceRaw(CoindcxExchange exchange, CoindcxAuthenticated coindcx) {
@@ -58,5 +59,9 @@ public class CoindcxTradeServiceRaw extends CoindcxBaseService {
                 orderId, null, price, getTimestampFactory().createValue()
         );
         return coindcx.editPrice(apiKey, signatureCreator, editPriceRequest);
+    }
+
+    public List<Map<Object, Object>> getTradeHistory() throws IOException {
+        return coindcx.getTradeHistory(apiKey, signatureCreator, new CoindcxTradeHistoryRequest(1662834600000L, 1662921000000L, getTimestampFactory().createValue()));
     }
 }

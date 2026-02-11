@@ -56,4 +56,12 @@ public interface CoindcxAuthenticated extends Coindcx {
             @HeaderParam(SIGNATURE) ParamsDigest signature,
             Map<String, Object> payload
     ) throws IOException;
+
+    @POST
+    @Path("exchange/v1/orders/trade_history")
+    List<Map<Object, Object>> getTradeHistory(
+            @HeaderParam(API_KEY) String apiKey,
+            @HeaderParam(SIGNATURE) ParamsDigest signature,
+            CoindcxTradeHistoryRequest payload
+    ) throws IOException;
 }
