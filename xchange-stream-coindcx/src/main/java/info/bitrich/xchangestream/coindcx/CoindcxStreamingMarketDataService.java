@@ -14,9 +14,12 @@ import io.reactivex.Observable;
 import io.reactivex.functions.Consumer;
 import org.knowm.xchange.coindcx.CoindcxAdapters;
 import org.knowm.xchange.currency.CurrencyPair;
+import org.knowm.xchange.derivative.FuturesContract;
 import org.knowm.xchange.dto.Order;
 import org.knowm.xchange.dto.marketdata.OrderBook;
 import org.knowm.xchange.dto.marketdata.Trade;
+import org.knowm.xchange.exceptions.NotYetImplementedForExchangeException;
+import org.knowm.xchange.instrument.Instrument;
 import org.knowm.xchange.dto.trade.LimitOrder;
 import org.knowm.xchange.exceptions.ExchangeException;
 
@@ -52,6 +55,17 @@ public class CoindcxStreamingMarketDataService implements StreamingMarketDataSer
     }
 
     @Override
+    public Observable<OrderBook> getOrderBook(Instrument instrument, Object... args) {
+        if (instrument instanceof FuturesContract) {
+            return getFuturesOrderBook((FuturesContract) instrument);
+        }
+        if (instrument instanceof CurrencyPair) {
+            return getOrderBook((CurrencyPair) instrument, args);
+        }
+        throw new NotYetImplementedForExchangeException("getOrderBook");
+    }
+
+    @Override
     public Observable<OrderBook> getOrderbookChanges(CurrencyPair currencyPair, Object... args) {
         return getOrderBook(currencyPair, args);
     }
@@ -74,6 +88,13 @@ public class CoindcxStreamingMarketDataService implements StreamingMarketDataSer
 
     public Observable<OrderBook> getFuturesOrderBook(CurrencyPair currencyPair) {
         return getOrderBook(currencyPair, CoindcxMarketType.FUTURES);
+    }
+
+    public Observable<OrderBook> getFuturesOrderBook(FuturesContract futuresContract) {
+        CurrencyPair currencyPair = futuresContract.getCurrencyPair();
+        String key = key(futuresContract);
+        return orderbookSubscriptions.computeIfAbsent(
+                key, ignore -> initOrderbookIfAbsent(currencyPair, CoindcxMarketType.FUTURES));
     }
 
     public Observable<Trade> getFuturesTrades(CurrencyPair currencyPair) {
@@ -147,6 +168,17 @@ public class CoindcxStreamingMarketDataService implements StreamingMarketDataSer
 
     private String key(CurrencyPair currencyPair, CoindcxMarketType marketType) {
         return marketType.name() + ":" + currencyPair.base + ":" + currencyPair.counter;
+    }
+
+    private String key(FuturesContract futuresContract) {
+        CurrencyPair pair = futuresContract.getCurrencyPair();
+        return CoindcxMarketType.FUTURES.name()
+                + ":"
+                + pair.base
+                + ":"
+                + pair.counter
+                + ":"
+                + futuresContract.getPrompt();
     }
 
     private boolean isOrderBookEvent(String eventType, CoindcxMarketType marketType) {
