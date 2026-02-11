@@ -4,11 +4,15 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 
 public class BaseCoindcxWebSocketTransaction {
     public enum CoindcxWebSocketType {
-        DepthUpdate("depth-update-20"),
+        DepthUpdate("depth-update"),
+        DepthUpdate20("depth-update-20"),
+        DepthSnapshot("depth-snapshot"),
         NewTrade("new-trade"),
         BalanceUpdate("balance-update"),
         TradeUpdate("trade-update"),
-        OrderUpdate("order-update");
+        OrderUpdate("order-update"),
+        FuturesOrderUpdate("df-order-update"),
+        PositionUpdate("df-position-update");
 
         private final String serializedValue;
 
@@ -31,7 +35,9 @@ public class BaseCoindcxWebSocketTransaction {
         public static boolean isAuthenticatedEvent(String eventType) {
             return eventType.equals(BalanceUpdate.serializedValue)
                     || eventType.equals(TradeUpdate.serializedValue)
-                    || eventType.equals(OrderUpdate.serializedValue);
+                    || eventType.equals(OrderUpdate.serializedValue)
+                    || eventType.equals(FuturesOrderUpdate.serializedValue)
+                    || eventType.equals(PositionUpdate.serializedValue);
         }
     }
 

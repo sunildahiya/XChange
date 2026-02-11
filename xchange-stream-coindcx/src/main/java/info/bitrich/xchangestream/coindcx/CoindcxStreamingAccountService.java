@@ -4,14 +4,17 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import info.bitrich.xchangestream.coindcx.dto.BalanceCoindcxWebSocketTransaction;
 import info.bitrich.xchangestream.coindcx.dto.BaseCoindcxWebSocketTransaction.CoindcxWebSocketType;
+import info.bitrich.xchangestream.coindcx.dto.PositionUpdateCoindcxWebSocketTransaction;
 import info.bitrich.xchangestream.core.StreamingAccountService;
 import info.bitrich.xchangestream.service.netty.StreamingObjectMapperHelper;
 import io.reactivex.Observable;
 import io.reactivex.subjects.PublishSubject;
 import io.reactivex.subjects.Subject;
 import lombok.extern.slf4j.Slf4j;
+import org.knowm.xchange.coindcx.CoindcxAdapters;
 import org.knowm.xchange.currency.Currency;
 import org.knowm.xchange.dto.account.Balance;
+import org.knowm.xchange.dto.account.OpenPosition;
 
 import java.util.stream.Collectors;
 
@@ -19,14 +22,22 @@ import java.util.stream.Collectors;
 public class CoindcxStreamingAccountService implements StreamingAccountService {
     private final CoindcxStreamingService userDataStreamingService;
     private final Subject<BalanceCoindcxWebSocketTransaction> balancePublisher = PublishSubject.<BalanceCoindcxWebSocketTransaction>create().toSerialized();
+    private final Subject<PositionUpdateCoindcxWebSocketTransaction> positionPublisher = PublishSubject.<PositionUpdateCoindcxWebSocketTransaction>create().toSerialized();
     private final ObjectMapper objectMapper = StreamingObjectMapperHelper.getObjectMapper();
+    private volatile boolean subscriptionsInitialized = false;
 
     public CoindcxStreamingAccountService(CoindcxStreamingService userDataStreamingService) {
         this.userDataStreamingService = userDataStreamingService;
     }
 
     public void openSubscriptions() {
-        if (userDataStreamingService != null) {
+        if (subscriptionsInitialized || userDataStreamingService == null) {
+            return;
+        }
+        synchronized (this) {
+            if (subscriptionsInitialized) {
+                return;
+            }
             userDataStreamingService
                     .subscribeChannel("coindcx")
                     .filter(message -> {
@@ -36,6 +47,13 @@ public class CoindcxStreamingAccountService implements StreamingAccountService {
                     .map(message ->
                             (BalanceCoindcxWebSocketTransaction) objectMapper.readerFor(new TypeReference<BalanceCoindcxWebSocketTransaction>(){}).readValue(message)
                     ).subscribe(balancePublisher::onNext);
+            userDataStreamingService
+                    .subscribeChannel("coindcx")
+                    .filter(message -> message.get("type").asText().equals(CoindcxWebSocketType.PositionUpdate.getSerializedValue()))
+                    .map(message ->
+                            (PositionUpdateCoindcxWebSocketTransaction) objectMapper.readerFor(new TypeReference<PositionUpdateCoindcxWebSocketTransaction>(){}).readValue(message)
+                    ).subscribe(positionPublisher::onNext);
+            subscriptionsInitialized = true;
         }
     }
 
@@ -54,5 +72,16 @@ public class CoindcxStreamingAccountService implements StreamingAccountService {
                                                 .build()
                                 ).collect(Collectors.toList())
                 ).flatMap(Observable::fromIterable);
+    }
+
+    public Observable<OpenPosition> getPositionChanges() {
+        openSubscriptions();
+        return positionPublisher
+                .map(positionTransaction ->
+                        positionTransaction.getPositions()
+                                .stream()
+                                .map(CoindcxAdapters::adaptOpenPosition)
+                                .collect(Collectors.toList()))
+                .flatMap(Observable::fromIterable);
     }
 }

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import info.bitrich.xchangestream.coindcx.dto.BaseCoindcxWebSocketTransaction.CoindcxWebSocketType;
+import info.bitrich.xchangestream.coindcx.dto.FuturesOrderUpdateCoindcxWebSocketTransaction;
 import info.bitrich.xchangestream.coindcx.dto.OrderUpdateCoindcxWebSocketTransaction;
 import info.bitrich.xchangestream.coindcx.dto.UserTradeCoindcxWebSocketTransaction;
 import info.bitrich.xchangestream.core.StreamingTradeService;
@@ -24,6 +25,7 @@ public class CoindcxStreamingTradeService implements StreamingTradeService {
     private final CoindcxStreamingService userDataStreamingService;
     private final Subject<UserTradeCoindcxWebSocketTransaction> tradePublisher = PublishSubject.<UserTradeCoindcxWebSocketTransaction>create().toSerialized();
     private final Subject<OrderUpdateCoindcxWebSocketTransaction> orderUpdatePublisher = PublishSubject.<OrderUpdateCoindcxWebSocketTransaction>create().toSerialized();
+    private final Subject<FuturesOrderUpdateCoindcxWebSocketTransaction> futuresOrderUpdatePublisher = PublishSubject.<FuturesOrderUpdateCoindcxWebSocketTransaction>create().toSerialized();
     private final ObjectMapper objectMapper = StreamingObjectMapperHelper.getObjectMapper();
 
     public CoindcxStreamingTradeService(CoindcxStreamingService userDataStreamingService) {
@@ -43,6 +45,11 @@ public class CoindcxStreamingTradeService implements StreamingTradeService {
                     .map(message ->
                             (OrderUpdateCoindcxWebSocketTransaction) objectMapper.readerFor(new TypeReference<OrderUpdateCoindcxWebSocketTransaction>(){}).readValue(message)
                     ).subscribe(orderUpdatePublisher::onNext);
+            userDataSubscriber
+                    .filter(message -> message.get("type").asText().equals(CoindcxWebSocketType.FuturesOrderUpdate.getSerializedValue()))
+                    .map(message ->
+                            (FuturesOrderUpdateCoindcxWebSocketTransaction) objectMapper.readerFor(new TypeReference<FuturesOrderUpdateCoindcxWebSocketTransaction>(){}).readValue(message)
+                    ).subscribe(futuresOrderUpdatePublisher::onNext);
         }
     }
 
@@ -68,11 +75,18 @@ public class CoindcxStreamingTradeService implements StreamingTradeService {
 
     @Override
     public Observable<Order> getOrderChanges() {
-        return orderUpdatePublisher
+        Observable<Order> spotOrderChanges = orderUpdatePublisher
                 .map(orderUpdateTransaction ->
                         orderUpdateTransaction
                                 .getOrders()
                                 .stream().map(CoindcxAdapters::adaptOrder).collect(Collectors.toList()))
                 .flatMap(Observable::fromIterable);
+        Observable<Order> futuresOrderChanges = futuresOrderUpdatePublisher
+                .map(orderUpdateTransaction ->
+                        orderUpdateTransaction
+                                .getOrders()
+                                .stream().map(CoindcxAdapters::adaptOrder).collect(Collectors.toList()))
+                .flatMap(Observable::fromIterable);
+        return Observable.merge(spotOrderChanges, futuresOrderChanges);
     }
 }

@@ -88,7 +88,7 @@ public class CoindcxStreamingService extends JsonNettyStreamingService {
         try {
             JsonNode dataNode = objectMapper.readTree(message.substring(2));
             String eventType = dataNode.get(0).asText();
-            if (eventType.equals("depth-update") || eventType.equals("depth-update-20"))
+            if (eventType.equals("depth-update") || eventType.equals("depth-update-20") || eventType.equals("depth-snapshot"))
                 log.debug("Received depth message - {}", message);
             else if (eventType.equals("new-trade"))
                 log.debug("Received market trade message - {}", message);
