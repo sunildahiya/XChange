@@ -18,7 +18,6 @@ import org.knowm.xchange.derivative.FuturesContract;
 import org.knowm.xchange.dto.Order;
 import org.knowm.xchange.dto.marketdata.OrderBook;
 import org.knowm.xchange.dto.marketdata.Trade;
-import org.knowm.xchange.exceptions.NotYetImplementedForExchangeException;
 import org.knowm.xchange.instrument.Instrument;
 import org.knowm.xchange.dto.trade.LimitOrder;
 import org.knowm.xchange.exceptions.ExchangeException;
@@ -31,10 +30,10 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 public class CoindcxStreamingMarketDataService implements StreamingMarketDataService {
-    private final Map<String, Observable<OrderBook>> orderbookSubscriptions;
+    private final Map<Instrument, Observable<OrderBook>> orderbookSubscriptions; // Raw diff converted to OrderBook
     private final CoindcxStreamingService service;
-    private final Map<String, Observable<DepthCoindcxWebSocketTransaction>> orderbookRawUpdatesSubscriptions;
-    private final Map<String, Observable<TradeCoindcxWebSocketTransaction>> tradeSubscriptions;
+    private final Map<Instrument, Observable<DepthCoindcxWebSocketTransaction>> orderbookRawUpdatesSubscriptions; // Raw diff update from Coindcx
+    private final Map<Instrument, Observable<TradeCoindcxWebSocketTransaction>> tradeSubscriptions;
     private final ObjectMapper objectMapper = StreamingObjectMapperHelper.getObjectMapper();
     public CoindcxStreamingMarketDataService(CoindcxStreamingService streamingService) {
         this.service = streamingService;
@@ -48,115 +47,82 @@ public class CoindcxStreamingMarketDataService implements StreamingMarketDataSer
     }
 
     @Override
-    public Observable<OrderBook> getOrderBook(CurrencyPair currencyPair, Object... args) {
-        CoindcxMarketType marketType = getMarketType(args);
-        String key = key(currencyPair, marketType);
-        return orderbookSubscriptions.computeIfAbsent(key, ignore -> initOrderbookIfAbsent(currencyPair, marketType));
-    }
-
-    @Override
-    public Observable<OrderBook> getOrderBook(Instrument instrument, Object... args) {
-        if (instrument instanceof FuturesContract) {
-            return getFuturesOrderBook((FuturesContract) instrument);
+    public Observable<OrderBook> getOrderbookChanges(Instrument instrument, Object... args) {
+        if (!(instrument instanceof CurrencyPair || instrument instanceof FuturesContract)) {
+            throw new IllegalArgumentException("Instrument must be a CurrencyPair or FuturesContract");
         }
-        if (instrument instanceof CurrencyPair) {
-            return getOrderBook((CurrencyPair) instrument, args);
-        }
-        throw new NotYetImplementedForExchangeException("getOrderBook");
+        return orderbookSubscriptions.computeIfAbsent(instrument, ignore -> initOrderbookIfAbsent(instrument));
     }
 
     @Override
-    public Observable<OrderBook> getOrderbookChanges(CurrencyPair currencyPair, Object... args) {
-        return getOrderBook(currencyPair, args);
-    }
-
-    @Override
-    public Observable<Trade> getTrades(CurrencyPair currencyPair, Object... args) {
-        CoindcxMarketType marketType = getMarketType(args);
-        String key = key(currencyPair, marketType);
-        return tradeSubscriptions.computeIfAbsent(key, ignore -> initTradeSubscription(currencyPair, marketType))
+    public Observable<Trade> getTrades(Instrument instrument, Object... args) {
+        return tradeSubscriptions.computeIfAbsent(instrument, ignore -> initTradeSubscription(instrument))
                 .map(rawTrade ->
                     new Trade.Builder()
                             .type(CoindcxAdapters.convertType(rawTrade.isBuyerMarketMaker()))
                             .originalAmount(rawTrade.getQuantity())
-                            .instrument(currencyPair)
+                            .instrument(instrument)
                             .price(rawTrade.getPrice())
                             .timestamp(new Date(rawTrade.getEventTime()))
                             .build()
                 );
     }
 
-    public Observable<OrderBook> getFuturesOrderBook(CurrencyPair currencyPair) {
-        return getOrderBook(currencyPair, CoindcxMarketType.FUTURES);
-    }
-
-    public Observable<OrderBook> getFuturesOrderBook(FuturesContract futuresContract) {
-        CurrencyPair currencyPair = futuresContract.getCurrencyPair();
-        String key = key(futuresContract);
-        return orderbookSubscriptions.computeIfAbsent(
-                key, ignore -> initOrderbookIfAbsent(currencyPair, CoindcxMarketType.FUTURES));
-    }
-
-    public Observable<Trade> getFuturesTrades(CurrencyPair currencyPair) {
-        return getTrades(currencyPair, CoindcxMarketType.FUTURES);
-    }
-
-    private Observable<OrderBook> initOrderbookIfAbsent(CurrencyPair currencyPair, CoindcxMarketType marketType) {
-        String key = key(currencyPair, marketType);
-        orderbookRawUpdatesSubscriptions.computeIfAbsent(key, ignore -> triggerObservableBody(rawOrderBookUpdates(currencyPair, marketType)));
-        return orderbookRawUpdatesSubscriptions.get(key)
+    private Observable<OrderBook> initOrderbookIfAbsent(Instrument instrument) {
+        orderbookRawUpdatesSubscriptions.computeIfAbsent(instrument, ignore -> triggerObservableBody(rawOrderBookUpdates(instrument)));
+        return orderbookRawUpdatesSubscriptions.get(instrument)
                 .map(transaction -> {
                     CoindcxOrderbook coindcxOrderbook = transaction.getOrderbook();
                     List<LimitOrder> bids =
                             coindcxOrderbook.bids.entrySet().stream().map( priceAndQty
-                                    -> new LimitOrder(Order.OrderType.BID, priceAndQty.getValue(), currencyPair, null, null, priceAndQty.getKey())
+                                    -> new LimitOrder(Order.OrderType.BID, priceAndQty.getValue(), instrument, null, null, priceAndQty.getKey())
                             ).collect(Collectors.toList());
 
                     List<LimitOrder> asks =
                             coindcxOrderbook.asks.entrySet().stream().map( priceAndQty
-                                    -> new LimitOrder(Order.OrderType.ASK, priceAndQty.getValue(), currencyPair, null, null, priceAndQty.getKey())
+                                    -> new LimitOrder(Order.OrderType.ASK, priceAndQty.getValue(), instrument, null, null, priceAndQty.getKey())
                             ).collect(Collectors.toList());
-                    return new OrderBook(currencyPair, null, asks, bids);
+                    return new OrderBook(instrument, null, asks, bids);
                 });
     }
 
-    private void initRawOrderBookUpdatesSubscription(CurrencyPair currencyPair) {
-        orderbookRawUpdatesSubscriptions.put(
-                key(currencyPair, CoindcxMarketType.SPOT), triggerObservableBody(rawOrderBookUpdates(currencyPair, CoindcxMarketType.SPOT)));
+    private void initRawOrderBookUpdatesSubscription(Instrument instrument) {
+        orderbookRawUpdatesSubscriptions.put(instrument, triggerObservableBody(rawOrderBookUpdates(instrument)));
     }
 
-    private Observable<TradeCoindcxWebSocketTransaction> initTradeSubscription(CurrencyPair currencyPair, CoindcxMarketType marketType) {
+    private Observable<TradeCoindcxWebSocketTransaction> initTradeSubscription(Instrument instrument) {
+        String channel = getCoindcxInstrumentName(instrument) + "@" + ((instrument instanceof CurrencyPair) ? "trades" : "trades-futures");
         return triggerObservableBody(
-                 service.subscribeChannel(channelFromCurrency(currencyPair, marketType, CoindcxWebSocketType.NewTrade))
+                 service.subscribeChannel(channel)
                         .filter(message -> message.get("type").asText().equals(CoindcxWebSocketType.NewTrade.getSerializedValue()))
                         .map(it -> this.readTransaction(it, new TypeReference<TradeCoindcxWebSocketTransaction>() {}, CoindcxWebSocketType.NewTrade))
         );
     }
 
-    private Observable<DepthCoindcxWebSocketTransaction> rawOrderBookUpdates(
-            CurrencyPair currencyPair, CoindcxMarketType marketType) {
+    private Observable<DepthCoindcxWebSocketTransaction> rawOrderBookUpdates(Instrument instrument) {
+        String channel = getCoindcxInstrumentName(instrument) + (instrument instanceof CurrencyPair ? "@orderbook@20" : "@orderbook@20-futures");
         return service
-                .subscribeChannel(channelFromCurrency(currencyPair, marketType, CoindcxWebSocketType.DepthSnapshot))
-                .filter(message -> isOrderBookEvent(message.get("type").asText(), marketType))
+                .subscribeChannel(channel)
+                .filter(message -> isOrderBookEvent(message.get("type").asText()))
                 .map(
                         it ->
                                 this.readTransaction(
                                         it, new TypeReference<DepthCoindcxWebSocketTransaction>(){}, CoindcxWebSocketType.DepthSnapshot));
     }
 
-    private String channelFromCurrency(CurrencyPair currencyPair, CoindcxMarketType marketType, CoindcxWebSocketType eventType) {
-        if (marketType == CoindcxMarketType.FUTURES) {
-            String symbol = String.format("B-%s_%s", currencyPair.base, currencyPair.counter);
-            if (eventType == CoindcxWebSocketType.NewTrade) {
-                return symbol + "@trades-futures";
-            }
-            return symbol + "@orderbook@50-futures";
+    private String getCoindcxInstrumentName(Instrument instrument) {
+        if (instrument instanceof CurrencyPair) {
+            CurrencyPair currencyPair = (CurrencyPair) instrument;
+            // We are supporting Coindcx and Kucoin markets
+            String eCode = "I";
+            if (!currencyPair.counter.getCurrencyCode().equals("INR"))
+                eCode = "KC";
+            return String.format("%s-%s_%s", eCode, currencyPair.base, currencyPair.counter);
+        } else if (instrument instanceof FuturesContract) {
+            FuturesContract futuresContract = (FuturesContract) instrument;
+            return String.format("B-%s_%s", futuresContract.getCurrencyPair().base, futuresContract.getCurrencyPair().counter);
         }
-        // We are supporting only coindcx native markets
-        String eCode = "I";
-        if (!currencyPair.counter.getCurrencyCode().equals("INR"))
-            eCode = "KC";
-        return String.format("%s-%s_%s", eCode, currencyPair.base, currencyPair.counter);
+        throw new IllegalArgumentException("Instrument must be a CurrencyPair or FuturesContract");
     }
 
     private CoindcxMarketType getMarketType(Object... args) {
@@ -166,27 +132,10 @@ public class CoindcxStreamingMarketDataService implements StreamingMarketDataSer
         return CoindcxMarketType.SPOT;
     }
 
-    private String key(CurrencyPair currencyPair, CoindcxMarketType marketType) {
-        return marketType.name() + ":" + currencyPair.base + ":" + currencyPair.counter;
-    }
-
-    private String key(FuturesContract futuresContract) {
-        CurrencyPair pair = futuresContract.getCurrencyPair();
-        return CoindcxMarketType.FUTURES.name()
-                + ":"
-                + pair.base
-                + ":"
-                + pair.counter
-                + ":"
-                + futuresContract.getPrompt();
-    }
-
-    private boolean isOrderBookEvent(String eventType, CoindcxMarketType marketType) {
-        if (marketType == CoindcxMarketType.FUTURES) {
-            return eventType.equals(CoindcxWebSocketType.DepthSnapshot.getSerializedValue());
-        }
+    private boolean isOrderBookEvent(String eventType) {
         return eventType.equals(CoindcxWebSocketType.DepthUpdate.getSerializedValue())
-                || eventType.equals(CoindcxWebSocketType.DepthUpdate20.getSerializedValue());
+                || eventType.equals(CoindcxWebSocketType.DepthUpdate20.getSerializedValue())
+                || eventType.equals(CoindcxWebSocketType.DepthSnapshot.getSerializedValue());
     }
 
     private <T> Observable<T> triggerObservableBody(Observable<T> observable) {

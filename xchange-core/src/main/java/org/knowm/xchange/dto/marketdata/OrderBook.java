@@ -13,6 +13,7 @@ import java.util.stream.Stream;
 import org.knowm.xchange.currency.CurrencyPair;
 import org.knowm.xchange.dto.Order.OrderType;
 import org.knowm.xchange.dto.trade.LimitOrder;
+import org.knowm.xchange.instrument.Instrument;
 
 /** DTO representing the exchange order book */
 public final class OrderBook implements Serializable {
@@ -26,6 +27,7 @@ public final class OrderBook implements Serializable {
   /** the timestamp of the orderbook according to the exchange's server, null if not provided */
   private Date timeStamp;
   private CurrencyPair currencyPair;
+  private Instrument instrument; // For FuturesContract and OptionsContract
 
   /**
    * Constructor
@@ -104,6 +106,11 @@ public final class OrderBook implements Serializable {
   public OrderBook(CurrencyPair currencyPair, Date timeStamp, List<LimitOrder> asks, List<LimitOrder> bids) {
     this(timeStamp, asks, bids);
     this.currencyPair = currencyPair;
+  }
+
+  public OrderBook(Instrument instrument, Date timeStamp, List<LimitOrder> asks, List<LimitOrder> bids) {
+    this(timeStamp, asks, bids);
+    this.instrument = instrument;
   }
 
   // Returns a copy of limitOrder with tradeableAmount replaced.
@@ -277,6 +284,10 @@ public final class OrderBook implements Serializable {
     this.currencyPair = currencyPair;
   }
 
+  public Instrument getInstrument() {
+    return instrument;
+  }
+
   @Override
   public String toString() {
 
@@ -286,6 +297,10 @@ public final class OrderBook implements Serializable {
         + asks.toString()
         + ", bids="
         + bids.toString()
+        + ", instrument="
+        + instrument
+        + ", currencyPair="
+        + currencyPair
         + "]";
   }
 }

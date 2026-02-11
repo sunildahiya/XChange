@@ -46,6 +46,7 @@ import org.knowm.xchange.dto.marketdata.Trade;
 import org.knowm.xchange.dto.trade.LimitOrder;
 import org.knowm.xchange.exceptions.ExchangeException;
 import org.knowm.xchange.exceptions.RateLimitExceededException;
+import org.knowm.xchange.instrument.Instrument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -463,9 +464,13 @@ public class BinanceStreamingMarketDataService implements StreamingMarketDataSer
   }
 
   @Override
-  public Observable<OrderBook> getOrderbookChanges(CurrencyPair currencyPair, Object... args) {
+  public Observable<OrderBook> getOrderbookChanges(Instrument instrument, Object... args) {
     // 1. Open a stream to wss://stream.binance.com:9443/ws/bnbbtc@depth
     // 2. Buffer the events you receive from the stream.
+    if (!(instrument instanceof CurrencyPair)) {
+      throw new IllegalArgumentException(String.format("Instrument %s is not a CurrencyPair", instrument));
+    }
+    CurrencyPair currencyPair = (CurrencyPair) instrument;
     OrderbookSubscription subscription =
             new OrderbookSubscription(orderBookRawUpdatesSubscriptions.get(currencyPair), currencyPair);
 

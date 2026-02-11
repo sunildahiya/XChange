@@ -33,10 +33,10 @@ public interface StreamingMarketDataService {
   }
 
   /**
-   * Emits orderbook changes with first item being orderbook snapshot
+   * Emits OrderBook changes for a generic instrument type with the first item being an OrderBook snapshot
    */
-  default Observable<OrderBook> getOrderbookChanges(CurrencyPair currencyPair, Object... args) {
-    throw new NotYetImplementedForExchangeException("getOrderbookChanges");
+  default Observable<OrderBook> getOrderbookChanges(Instrument instrument, Object... args) {
+    throw new NotYetImplementedForExchangeException("getOrderBookChanges");
   }
   /**
    * Get a ticker representing the current exchange rate. Emits {@link
