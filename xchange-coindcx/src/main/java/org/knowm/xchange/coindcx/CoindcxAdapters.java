@@ -121,13 +121,14 @@ public class CoindcxAdapters {
     }
 
     public static OpenPosition adaptOpenPosition(CoindcxFuturesPosition position) {
+        BigDecimal activePos = position.getActivePos();
         return new OpenPosition.Builder()
                 .instrument(adaptSymbol(position.getPair()))
-                .type(adaptPositionType(position.getSide()))
-                .size(position.getSize())
-                .price(position.getEntryPrice())
+                .type(adaptPositionType(activePos))
+                .size(activePos == null ? null : activePos.abs())
+                .price(position.getAvgPrice())
                 .liquidationPrice(position.getLiquidationPrice())
-                .unRealisedPnl(position.getUnrealizedPnl())
+                .unRealisedPnl(null)
                 .build();
     }
 
@@ -204,12 +205,11 @@ public class CoindcxAdapters {
         return "buy".equalsIgnoreCase(side) ? Order.OrderType.BID : Order.OrderType.ASK;
     }
 
-    private static OpenPosition.Type adaptPositionType(String side) {
-        if (side == null) {
+    private static OpenPosition.Type adaptPositionType(BigDecimal activePos) {
+        if (activePos == null) {
             return OpenPosition.Type.LONG;
         }
-        String normalized = side.toLowerCase(Locale.ROOT);
-        if (normalized.contains("short") || normalized.contains("sell")) {
+        if (activePos.signum() < 0) {
             return OpenPosition.Type.SHORT;
         }
         return OpenPosition.Type.LONG;

@@ -46,11 +46,9 @@ public class CoindcxAdaptersTest {
   public void adaptFuturesPositionMapsToOpenPosition() {
     CoindcxFuturesPosition futuresPosition = new CoindcxFuturesPosition();
     futuresPosition.setPair("B-ETH_USDT");
-    futuresPosition.setSide("short");
-    futuresPosition.setSize(new BigDecimal("1.5"));
-    futuresPosition.setEntryPrice(new BigDecimal("2500"));
+    futuresPosition.setActivePos(new BigDecimal("-1.5"));
+    futuresPosition.setAvgPrice(new BigDecimal("2500"));
     futuresPosition.setLiquidationPrice(new BigDecimal("2800"));
-    futuresPosition.setUnrealizedPnl(new BigDecimal("-12.3"));
 
     OpenPosition openPosition = CoindcxAdapters.adaptOpenPosition(futuresPosition);
 

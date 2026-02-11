@@ -1,26 +1,20 @@
 package org.knowm.xchange.coindcx.dto.trade;
 
-import com.fasterxml.jackson.annotation.JsonAlias;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.math.BigDecimal;
 import lombok.Data;
 
 @Data
 public class CoindcxFuturesPosition {
-  @JsonAlias({"pair", "symbol", "market"})
+  private String id;
   private String pair;
 
-  @JsonAlias({"side", "position_side", "position_type"})
-  private String side;
+  @JsonProperty("active_pos")
+  private BigDecimal activePos;
 
-  @JsonAlias({"size", "quantity", "position_size", "total_quantity"})
-  private BigDecimal size;
+  @JsonProperty("avg_price")
+  private BigDecimal avgPrice;
 
-  @JsonAlias({"entry_price", "avg_price", "average_price"})
-  private BigDecimal entryPrice;
-
-  @JsonAlias({"liquidation_price", "liq_price"})
+  @JsonProperty("liquidation_price")
   private BigDecimal liquidationPrice;
-
-  @JsonAlias({"unrealized_pnl", "unrealised_pnl", "unrealizedPnL"})
-  private BigDecimal unrealizedPnl;
 }
